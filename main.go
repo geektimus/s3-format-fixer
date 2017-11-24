@@ -9,6 +9,7 @@ import (
 	"regexp"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
@@ -93,9 +94,35 @@ func main() {
 		if err != nil {
 			exitErrorf("Unable to unmarshal contents of item %q, %v", item, err)
 		}
-		fmt.Println(event.Sns.Message)
-		fmt.Println(event.EventVersion)
-		fmt.Println(event.Sns.SignatureVersion)
+
+		// Create correct json and replace the object on S3
+
+		b, err := json.Marshal(event)
+		if err != nil {
+			exitErrorf("Unable to marshal the event %q, %v", event, err)
+		}
+
+		result, err := svc.PutObject(&s3.PutObjectInput{
+			Body:   aws.ReadSeekCloser(bytes.NewReader(b)),
+			Bucket: aws.String(bucket),
+			Key:    aws.String(item),
+		})
+
+		if err != nil {
+			if aerr, ok := err.(awserr.Error); ok {
+				switch aerr.Code() {
+				default:
+					fmt.Println(aerr.Error())
+				}
+			} else {
+				// Print the error, cast err to awserr.Error to get the Code and
+				// Message from an error.
+				fmt.Println(err.Error())
+			}
+			return
+		}
+
+		fmt.Println(result)
 
 		//println(contents)
 	}
@@ -119,6 +146,5 @@ func parseUnquotedJSON(unquotedJSON string) string {
 	// Remove quotes from the numbers (or at least the ones I expect to be numbers)
 	re = regexp.MustCompile(`: (["']?)([0-9\.]+)(["']?),`)
 	s = re.ReplaceAllString(s, `: $2,`)
-	println(s)
 	return s
 }
