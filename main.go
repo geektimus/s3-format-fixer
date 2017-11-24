@@ -2,17 +2,50 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"regexp"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
+
+type snsTimestamp time.Time
+
+func (ts snsTimestamp) MarshalJSON() ([]byte, error) {
+	millis := time.Time(ts).UnixNano()
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint64(b, uint64(millis))
+	return b, nil
+}
+
+func (ts snsTimestamp) UnmarshalJSON(b []byte) error {
+	var timestamp string
+	err := json.Unmarshal(b, &timestamp)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Type timestamp: ", reflect.TypeOf(timestamp))
+
+	t, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		exitErrorf("Error unmarshaling event timestamp %q", timestamp)
+	}
+
+	fmt.Println("Type parsed time: ", reflect.TypeOf(t))
+
+	ts = snsTimestamp(t)
+	fmt.Println("Type instance: ", reflect.TypeOf(ts))
+	fmt.Println("New: ", ts, "return:", t)
+	return nil
+}
 
 type messageAttributes struct {
 	Key   string `json:"key"`
@@ -28,7 +61,7 @@ type sns struct {
 	SnsType           string             `json:"type"`
 	SignatureVersion  int                `json:"signatureVersion"`
 	Signature         string             `json:"signature"`
-	Timestamp         string             `json:"timestamp"`
+	Timestamp         snsTimestamp       `json:"timestamp"`
 	TopicArn          string             `json:"topicArn"`
 }
 
@@ -95,34 +128,36 @@ func main() {
 			exitErrorf("Unable to unmarshal contents of item %q, %v", item, err)
 		}
 
+		fmt.Println("WTF: ", event.Sns.Timestamp)
+
 		// Create correct json and replace the object on S3
 
-		b, err := json.Marshal(event)
-		if err != nil {
-			exitErrorf("Unable to marshal the event %q, %v", event, err)
-		}
+		/* 		b, err := json.Marshal(event)
+		   		if err != nil {
+		   			exitErrorf("Unable to marshal the event %q, %v", event, err)
+		   		}
 
-		result, err := svc.PutObject(&s3.PutObjectInput{
-			Body:   aws.ReadSeekCloser(bytes.NewReader(b)),
-			Bucket: aws.String(bucket),
-			Key:    aws.String(item),
-		})
+		   		result, err := svc.PutObject(&s3.PutObjectInput{
+		   			Body:   aws.ReadSeekCloser(bytes.NewReader(b)),
+		   			Bucket: aws.String(bucket),
+		   			Key:    aws.String(item),
+		   		})
 
-		if err != nil {
-			if aerr, ok := err.(awserr.Error); ok {
-				switch aerr.Code() {
-				default:
-					fmt.Println(aerr.Error())
-				}
-			} else {
-				// Print the error, cast err to awserr.Error to get the Code and
-				// Message from an error.
-				fmt.Println(err.Error())
-			}
-			return
-		}
+		   		if err != nil {
+		   			if aerr, ok := err.(awserr.Error); ok {
+		   				switch aerr.Code() {
+		   				default:
+		   					fmt.Println(aerr.Error())
+		   				}
+		   			} else {
+		   				// Print the error, cast err to awserr.Error to get the Code and
+		   				// Message from an error.
+		   				fmt.Println(err.Error())
+		   			}
+		   			return
+		   		}
 
-		fmt.Println(result)
+		   		fmt.Println(result) */
 
 		//println(contents)
 	}
