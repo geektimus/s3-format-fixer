@@ -2,13 +2,12 @@ package main
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"io"
+	"log"
 	"os"
-	"reflect"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -16,40 +15,38 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
-type snsTimestamp time.Time
+type snsTimestamp int64
 
+// Parses object string value to int64
 func (ts snsTimestamp) MarshalJSON() ([]byte, error) {
-	millis := time.Time(ts).UnixNano()
-	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, uint64(millis))
+	timestamp := int64(ts)
+	millis := time.Unix(0, timestamp).UnixNano()
+	b := []byte(strconv.FormatInt(millis, 10))
 	return b, nil
 }
 
-func (ts snsTimestamp) UnmarshalJSON(b []byte) error {
+func (ts *snsTimestamp) UnmarshalJSON(b []byte) error {
 	var timestamp string
 	err := json.Unmarshal(b, &timestamp)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("Type timestamp: ", reflect.TypeOf(timestamp))
-
 	t, err := time.Parse(time.RFC3339, timestamp)
 	if err != nil {
 		exitErrorf("Error unmarshaling event timestamp %q", timestamp)
 	}
-
-	fmt.Println("Type parsed time: ", reflect.TypeOf(t))
-
-	ts = snsTimestamp(t)
-	fmt.Println("Type instance: ", reflect.TypeOf(ts))
-	fmt.Println("New: ", ts, "return:", t)
+	*ts = snsTimestamp(t.UnixNano() / int64(time.Millisecond))
 	return nil
 }
 
 type messageAttributes struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
+}
+
+func (t messageAttributes) String() string {
+	return "{}"
 }
 
 type sns struct {
@@ -73,7 +70,7 @@ type snsEvent struct {
 }
 
 func exitErrorf(msg string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, msg+"\n", args...)
+	log.Fatalf(msg+"\n", args...)
 	os.Exit(1)
 }
 
@@ -128,7 +125,16 @@ func main() {
 			exitErrorf("Unable to unmarshal contents of item %q, %v", item, err)
 		}
 
-		fmt.Println("WTF: ", event.Sns.Timestamp)
+		// Create correct json and replace the object on S3
+
+		b, err := json.Marshal(&event)
+		if err != nil {
+			if e, ok := err.(*json.SyntaxError); ok {
+				log.Printf("Syntax error at byte offset %d", e.Offset)
+			}
+			//log.Printf("Event: %+v", event)
+			log.Printf("Error marshaling event: %v", err)
+		}
 
 		// Create correct json and replace the object on S3
 
