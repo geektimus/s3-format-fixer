@@ -75,13 +75,12 @@ func exitErrorf(msg string, args ...interface{}) {
 }
 
 func main() {
-	if len(os.Args) != 2 {
-		exitErrorf("Bucket name is required\nUsage: go run s3-format-fixer bucket")
+	if len(os.Args) != 3 {
+		exitErrorf("Bucket name is required\nUsage: go run s3-format-fixer bucket prefix")
 	}
 
 	bucket := os.Args[1]
-
-	//source := bucket + "/" + item
+	prefix := os.Args[2]
 
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String("us-east-1")},
@@ -95,7 +94,7 @@ func main() {
 	svc := s3.New(sess)
 
 	// List object on the bucket to get the keys
-	list, err := svc.ListObjects(&s3.ListObjectsInput{Bucket: aws.String(bucket), MaxKeys: aws.Int64(10000), Prefix: aws.String("XBO_CI_DEVICE")})
+	list, err := svc.ListObjects(&s3.ListObjectsInput{Bucket: aws.String(bucket), MaxKeys: aws.Int64(10000), Prefix: aws.String(prefix)})
 	if err != nil {
 		exitErrorf("Unable to list items in bucket %q, %v", bucket, err)
 	}
@@ -135,6 +134,8 @@ func main() {
 			//log.Printf("Event: %+v", event)
 			log.Printf("Error marshaling event: %v", err)
 		}
+
+		println(string(b))
 
 		// Create correct json and replace the object on S3
 
