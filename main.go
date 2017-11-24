@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
@@ -45,16 +47,29 @@ type messageAttributes struct {
 	Value string `json:"value"`
 }
 
-func (t messageAttributes) String() string {
-	return "{}"
+// Need to ignore this property and parse always as an empty object (JSON)
+func (m messageAttributes) MarshalJSON() ([]byte, error) {
+	b := []byte(string("{}"))
+	return b, nil
+}
+
+func (m *messageAttributes) UnmarshalJSON(b []byte) error {
+	var messageAttr map[string]string
+	err := json.Unmarshal(b, &messageAttr)
+	if err != nil {
+		return err
+	}
+
+	*m = messageAttributes{Key: "", Value: ""}
+	return nil
 }
 
 type sns struct {
 	MessageAttributes *messageAttributes `json:"messageAttributes"`
-	SigningCertURL    string             `json:"signingCertURL"`
-	MessageID         string             `json:"messageID"`
+	SigningCertURL    string             `json:"signingCertUrl"`
+	MessageID         string             `json:"messageId"`
 	Message           string             `json:"message"`
-	UnsubscribeURL    string             `json:"unsubscribeURL"`
+	UnsubscribeURL    string             `json:"unsubscribeUrl"`
 	SnsType           string             `json:"type"`
 	SignatureVersion  int                `json:"signatureVersion"`
 	Signature         string             `json:"signature"`
@@ -135,38 +150,29 @@ func main() {
 			log.Printf("Error marshaling event: %v", err)
 		}
 
-		println(string(b))
-
 		// Create correct json and replace the object on S3
 
-		/* 		b, err := json.Marshal(event)
-		   		if err != nil {
-		   			exitErrorf("Unable to marshal the event %q, %v", event, err)
-		   		}
+		result, err := svc.PutObject(&s3.PutObjectInput{
+			Body:   aws.ReadSeekCloser(bytes.NewReader(b)),
+			Bucket: aws.String(bucket),
+			Key:    aws.String(item),
+		})
 
-		   		result, err := svc.PutObject(&s3.PutObjectInput{
-		   			Body:   aws.ReadSeekCloser(bytes.NewReader(b)),
-		   			Bucket: aws.String(bucket),
-		   			Key:    aws.String(item),
-		   		})
+		if err != nil {
+			if aerr, ok := err.(awserr.Error); ok {
+				switch aerr.Code() {
+				default:
+					fmt.Println(aerr.Error())
+				}
+			} else {
+				// Print the error, cast err to awserr.Error to get the Code and
+				// Message from an error.
+				fmt.Println(err.Error())
+			}
+			return
+		}
 
-		   		if err != nil {
-		   			if aerr, ok := err.(awserr.Error); ok {
-		   				switch aerr.Code() {
-		   				default:
-		   					fmt.Println(aerr.Error())
-		   				}
-		   			} else {
-		   				// Print the error, cast err to awserr.Error to get the Code and
-		   				// Message from an error.
-		   				fmt.Println(err.Error())
-		   			}
-		   			return
-		   		}
-
-		   		fmt.Println(result) */
-
-		//println(contents)
+		fmt.Println(result)
 	}
 }
 
