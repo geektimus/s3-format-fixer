@@ -36,7 +36,7 @@ func (ts *snsTimestamp) UnmarshalJSON(b []byte) error {
 
 	t, err := time.Parse(time.RFC3339, timestamp)
 	if err != nil {
-		exitErrorf("Error unmarshaling event timestamp %q", timestamp)
+		exitWithError("Error unmarshaling event timestamp %q", timestamp)
 	}
 	*ts = snsTimestamp(t.UnixNano() / int64(time.Millisecond))
 	return nil
@@ -84,34 +84,34 @@ type snsEvent struct {
 	EventSubscriptionArn string  `json:"eventSubscriptionArn"`
 }
 
-func exitErrorf(msg string, args ...interface{}) {
+func exitWithError(msg string, args ...interface{}) {
 	log.Fatalf(msg+"\n", args...)
 	os.Exit(1)
 }
 
 func main() {
 	if len(os.Args) != 3 {
-		exitErrorf("Bucket name is required\nUsage: go run s3-format-fixer bucket prefix")
+		exitWithError("Bucket name is required\nUsage: go run s3-format-fixer bucket prefix")
 	}
 
 	bucket := os.Args[1]
 	prefix := os.Args[2]
 
-	sess, err := session.NewSession(&aws.Config{
+	ss, err := session.NewSession(&aws.Config{
 		Region: aws.String("us-east-1")},
 	)
 
 	if err != nil {
-		exitErrorf("Error trying to create the session")
+		exitWithError("Error trying to create the session")
 	}
 
 	// Create S3 service client
-	svc := s3.New(sess)
+	svc := s3.New(ss)
 
 	// List object on the bucket to get the keys
 	list, err := svc.ListObjects(&s3.ListObjectsInput{Bucket: aws.String(bucket), MaxKeys: aws.Int64(10000), Prefix: aws.String(prefix)})
 	if err != nil {
-		exitErrorf("Unable to list items in bucket %q, %v", bucket, err)
+		exitWithError("Unable to list items in bucket %q, %v", bucket, err)
 	}
 
 	l := make([]string, 0)
@@ -127,7 +127,7 @@ func main() {
 			Key:    &item,
 		})
 		if err != nil {
-			exitErrorf("Unable to read contents of item %q, %v", item, err)
+			exitWithError("Unable to read contents of item %q, %v", item, err)
 		}
 		contents := getContents(obj.Body)
 
@@ -136,7 +136,7 @@ func main() {
 		var event snsEvent
 		err = json.Unmarshal([]byte(quotedJSON), &event)
 		if err != nil {
-			exitErrorf("Unable to unmarshal contents of item %q, %v", item, err)
+			exitWithError("Unable to unmarshal contents of item %q, %v", item, err)
 		}
 
 		// Create correct json and replace the object on S3
@@ -159,10 +159,10 @@ func main() {
 		})
 
 		if err != nil {
-			if aerr, ok := err.(awserr.Error); ok {
-				switch aerr.Code() {
+			if err, ok := err.(awserr.Error); ok {
+				switch err.Code() {
 				default:
-					fmt.Println(aerr.Error())
+					fmt.Println(err.Error())
 				}
 			} else {
 				// Print the error, cast err to awserr.Error to get the Code and
@@ -189,10 +189,10 @@ func parseUnquotedJSON(unquotedJSON string) string {
 	var re = regexp.MustCompile(`(['"])?([a-z0-9A-Z_]+)(['"])?:\s`)
 	s := re.ReplaceAllString(unquotedJSON, `"$2": `)
 	// Add quotes to the values
-	re = regexp.MustCompile(`: (['"])?([a-z0-9A-Z_\/\.\-\:\?\&\=\+]+)(['"])?`)
+	re = regexp.MustCompile(`: (['"])?([a-z0-9A-Z_/.\-:?&=+]+)(['"])?`)
 	s = re.ReplaceAllString(s, `: "$2"`)
 	// Remove quotes from the numbers (or at least the ones I expect to be numbers)
-	re = regexp.MustCompile(`: (["']?)([0-9\.]+)(["']?),`)
+	re = regexp.MustCompile(`: (["']?)([0-9.]+)(["']?),`)
 	s = re.ReplaceAllString(s, `: $2,`)
 	return s
 }
